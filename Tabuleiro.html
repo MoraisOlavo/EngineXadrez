@@ -1,0 +1,1165 @@
+<!DOCTYPE html>
+<html>
+	
+	<style>
+		#tabuleiro{
+			display:flex;
+			flex-direction:column;
+			width:calc(8*var(--tamQuad));
+			border: 10px double black;
+		}
+		
+		#lixeira{
+			width:var(--tamQuad);
+			height:var(--tamQuad);
+		}
+		
+		.caixa-pecas{
+			height:var(--tamQuad);
+			border: 10px double black;
+			display:flex;
+		}
+		
+		.linhaTab{
+			display:flex;
+			flex-direction:row;
+		}
+		
+		.hide{
+			display:none;
+		}
+		
+		body{
+			--tamQuad:clamp(0px,10vmin,100px);
+			min-height:100vh;
+			max-width:100vw;
+			margin:0px;
+			display:flex;
+			flex-direction:column;
+			justify-content:center;
+			align-items:center;
+		}
+		
+		.peca{
+			width:var(--tamQuad);
+			height:var(--tamQuad);
+		}
+
+		.rotated{
+			transform:rotate(180deg);
+		}
+
+		#div-opcoes{
+			display:flex;
+			flex-direction:column;
+			align-items:center;
+		}
+		
+		.amarelo{
+			background-color:yellow !important;
+		}
+	</style>
+	
+	<body id="root">		
+		<div id="tabuleiro"></div>
+		<br>
+		<div id="div-opcoes">
+			<img id="lixeira" src="https://images.vexels.com/media/users/3/223479/isolated/lists/8ecc75c9d0cf6d942cce96e196d4953f-icone-de-lixeira-plano.png">
+			<br>
+			<div id="caixa-pecas-branca" class="caixa-pecas"></div>
+			<br>
+			<div id="caixa-pecas-preta" class="caixa-pecas"></div>
+			<button id="bt-apagar-tab">Apagar Tabuleiro</button>
+			<button id="bt-inicar-tab">Iniciar Tabuleiro</button>
+			<button id="bt-girar-tab">Girar Tabuleiro</button>
+			<form>
+				<input id="bt-quem-comeca-brancas" value="brancas" name="quem-comeca" checked type="radio">
+				<label for="bt-quem-comeca-brancas">Brancas</label>
+				<input id="bt-quem-comeca-pretas" value="pretas" name="quem-comeca" type="radio">
+				<label for="bt-quem-comeca-pretas">Pretas</label>
+				<button id="bt-quem-comeca">Enviar</button>
+				<br>
+				<input checked type="checkbox" id="roque-curto-brancas">
+				<label for="roque-curto-brancas">Roque curto das Brancas</label>
+				<input checked type="checkbox" id="roque-longo-brancas">
+				<label for="roque-longo-brancas">Roque longo das Brancas</label>
+				<br>
+				<input checked type="checkbox" id="roque-curto-pretas">
+				<label for="roque-curto-pretas">Roque curto das Pretas</label>
+				<input checked type="checkbox" id="roque-longo-pretas">
+				<label for="roque-longo-pretas">Roque longo das Pretas</label>
+			</form>
+		</div>
+	</body>
+	
+	<script>
+		
+		//Variavel que determina o tamanho de cada casa do tabuleiro
+		let tamQuad=getComputedStyle(document.getElementById("tabuleiro")).getPropertyValue('--tamQuad');
+		
+		//Var que armazena de quem é a vez, -1:pretas, 1: brancas, 0: o tabuleiro está sendo definido,tá liberado a bagunça, faz oq quiser
+		let vezJogador=0;
+		
+		//Vetor que representa o tabuleiro e sua inicialização
+		let vetorTab=[];
+		let vetorMovimentos=[];
+		for(let i=0;i<8;i++){
+				vetorTab[i]=new Array(8);
+				for(let j=0;j<8;j++){
+					vetorTab[i][j]="  ";
+				}
+		}
+		
+		let orientacaoTabuleiro=1;
+		let enPassant=[-1,-1];
+		let enPassantContador=false;
+		let roque=[true,true,true,true];
+		
+		//Recebe qual a peça a ser criada e retorna sua img
+		function CriarImagem(tipoPeca){
+			//Cria e define a imagem
+			let img=document.createElement("img");
+			img.classList.add("peca");
+			img.src="Pecas/"+tipoPeca+".svg";
+			//Define informações básicas sobre a peça
+			img.dataset.tipoPeca=tipoPeca;
+			//Posição atual da imagem/peça
+			img.dataset.i=-1;
+			img.dataset.j=-1;
+			
+			//O que deve ser feito quando a imagem for arrastada
+			img.addEventListener("dragstart",e=>{
+				e.dataTransfer.setData("text/plain",tipoPeca+","+img.dataset.i+","+img.dataset.j);//Armazena qual o tipo da imagem e onde ela tava antes de ser arrastada
+				console.log("comecou a arrastar uma peça do tipo: "+img.dataset.tipoPeca);
+			});
+			return img;
+		}
+	
+		//Cria uma peça e adiciona ela na posição indicada
+		function InserirPeca(i,j,tipoPeca){
+			vetorTab[i][j]=tipoPeca;//Define no vetor que representa o tabuleiro que a peça está ali
+			//Remove a peça que esteja na posição desejada
+			let casa=document.getElementById("linha-"+i+"-coluna-"+j);
+			let aux;
+			if(casa.firstChild){
+				casa.removeChild(casa.firstChild);
+			}
+			//tipoPeca=="  " significa casa vazia
+			if(tipoPeca!="  "){//Se não for p deixar a casa vazia
+				//Cria a imagem
+				let img=CriarImagem(tipoPeca);
+				img.dataset.i=i;//Define a posição i da imagem
+				img.dataset.j=j;//Define a posição j da imagem
+				img.addEventListener("dragstart",e=>{//Define o que deve acontecer quando a imagem for segurada
+					setTimeout(()=>{
+						e.target.classList.add("hide");//Oculta a imagem quando ela for segurada para passar a impressão que a peça está na "mão" do usuário
+					},1);
+					
+					if(vezJogador!=0){
+						for(let k=0;k<vetorMovimentos.length;k+=4){
+							if(vetorMovimentos[k]==img.dataset.i && vetorMovimentos[k+1]==img.dataset.j){
+								aux=document.getElementById("linha-"+vetorMovimentos[k+2]+"-coluna-"+vetorMovimentos[k+3]);
+								aux.classList.add("amarelo");
+							}
+						}
+				}
+					
+				});
+				img.addEventListener("dragend",e=>{
+					e.target.classList.remove("hide");
+					for(let m=0;m<8;m++){
+						for(let n=0;n<8;n++){
+							aux=document.getElementById("linha-"+m+"-coluna-"+n);
+							aux.classList.remove("amarelo");
+						}
+					}
+				});
+				casa.appendChild(img);//Adiciona a imagem na casa
+			}
+		}
+		
+		//Tira todas as peças do tabuleiro
+		function ApagarTabuleiro(){
+			//Percorre todas as casas do tabuleiros
+			for(let i=0;i<8;i++){
+				for(let j=0;j<8;j++){				
+					InserirPeca(i,j,"  ");//Remove a peça da posição i,j
+				}
+			}
+		}
+		
+		//Define a posição inicial do tabuleiro
+		function IniciarTabuleiro(){
+			ApagarTabuleiro();//Tira todas as peças
+			
+			for(let i=0;i<8;i++){//Insere os peões
+				InserirPeca(1,i,"BP");
+				InserirPeca(6,i,"PP");
+			}
+			
+			//Insere as peças brancas
+			InserirPeca(0,0,"BT");
+			InserirPeca(0,1,"BC");
+			InserirPeca(0,2,"BB");
+			InserirPeca(0,3,"BD");
+			InserirPeca(0,4,"BR");
+			InserirPeca(0,5,"BB");
+			InserirPeca(0,6,"BC");
+			InserirPeca(0,7,"BT");
+			
+			//Insere as peças pretas
+			InserirPeca(7,0,"PT");
+			InserirPeca(7,1,"PC");
+			InserirPeca(7,2,"PB");
+			InserirPeca(7,3,"PD");
+			InserirPeca(7,4,"PR");
+			InserirPeca(7,5,"PB");
+			InserirPeca(7,6,"PC");
+			InserirPeca(7,7,"PT");
+		}
+		
+		//Gira o tabuleiro para alternar entre os pontos de vista dos jogadores de brancas e pretas
+		function GirarTabuleiro(){
+			orientacaoTabuleiro*=-1;
+			document.getElementById("tabuleiro").classList.toggle("rotated");//Gira o tabuleiro todo 180°
+			for(let i=0;i<8;i++){//Gira todas as casas do tabuleiro 180°
+				for(let j=0;j<8;j++){
+					document.getElementById("linha-"+i+"-coluna-"+j).classList.toggle("rotated");
+				}
+			}
+		}
+		
+		function CalcularMovimentosTorre(i,j){
+			let r=[];
+			
+			for(let k=1;i+k<8;k++){
+				if(vetorTab[i+k][j]=="  "){
+					r.push(i,j,i+k,j);
+					continue;
+				}
+				if(vetorTab[i+k][j][0]=="B"&& vezJogador==-1){
+					r.push(i,j,i+k,j);
+					break;
+				}
+				if(vetorTab[i+k][j][0]=="P"&& vezJogador==1){
+					r.push(i,j,i+k,j);
+					break;
+				}
+				break;
+			}
+			
+			for(let k=1;i-k>=0;k++){
+				if(vetorTab[i-k][j]=="  "){
+					r.push(i,j,i-k,j);
+					continue;
+				}
+				if(vetorTab[i-k][j][0]=="B"&& vezJogador==-1){
+					r.push(i,j,i-k,j);
+					break;
+				}
+				if(vetorTab[i-k][j][0]=="P"&& vezJogador==1){
+					r.push(i,j,i-k,j);
+					break;
+				}
+				break;
+			}
+			
+			for(let k=1;j+k<8;k++){
+				if(vetorTab[i][j+k]=="  "){
+					r.push(i,j,i,j+k);
+					continue;
+				}
+				if(vetorTab[i][j+k][0]=="B"&& vezJogador==-1){
+					r.push(i,j,i,j+k);
+					break;
+				}
+				if(vetorTab[i][j+k][0]=="P"&& vezJogador==1){
+					r.push(i,j,i,j+k);
+					break;
+				}
+				break;
+			}
+			
+			for(let k=1;j-k>=0;k++){
+				if(vetorTab[i][j-k]=="  "){
+					r.push(i,j,i,j-k);
+					continue;
+				}
+				if(vetorTab[i][j-k][0]=="B"&& vezJogador==-1){
+					r.push(i,j,i,j-k);
+					break;
+				}
+				if(vetorTab[i][j-k][0]=="P"&& vezJogador==1){
+					r.push(i,j,i,j-k);
+					break;
+				}
+				break;
+			}
+			
+			return r;
+		}
+		
+		function CalcularMovimentosBispo(i,j){
+			let r=[];
+			
+			for(let k=1;i+k<8 && j+k<8;k++){
+				if(vetorTab[i+k][j+k]=="  "){
+					r.push(i,j,i+k,j+k);
+					continue;
+				}
+				if(vetorTab[i+k][j+k][0]=="B"&& vezJogador==-1){
+					r.push(i,j,i+k,j+k);
+					break;
+				}
+				if(vetorTab[i+k][j+k][0]=="P"&& vezJogador==1){
+					r.push(i,j,i+k,j+k);
+					break;
+				}
+				break;
+			}
+			
+			for(let k=1;i+k<8 && j-k>=0;k++){
+				if(vetorTab[i+k][j-k]=="  "){
+					r.push(i,j,i+k,j-k);
+					continue;
+				}
+				if(vetorTab[i+k][j-k][0]=="B"&& vezJogador==-1){
+					r.push(i,j,i+k,j-k);
+					break;
+				}
+				if(vetorTab[i+k][j-k][0]=="P"&& vezJogador==1){
+					r.push(i,j,i+k,j-k);
+					break;
+				}
+				break;
+			}
+			
+			for(let k=1;i-k>=0 && j+k<8;k++){
+				if(vetorTab[i-k][j+k]=="  "){
+					r.push(i,j,i-k,j+k);
+					continue;
+				}
+				if(vetorTab[i-k][j+k][0]=="B"&& vezJogador==-1){
+					r.push(i,j,i-k,j+k);
+					break;
+				}
+				if(vetorTab[i-k][j+k][0]=="P"&& vezJogador==1){
+					r.push(i,j,i-k,j+k);
+					break;
+				}
+				break;
+			}
+			
+			for(let k=1;i-k>=0 && j-k>=0;k++){
+				if(vetorTab[i-k][j-k]=="  "){
+					r.push(i,j,i-k,j-k);
+					continue;
+				}
+				if(vetorTab[i-k][j-k][0]=="B"&& vezJogador==-1){
+					r.push(i,j,i-k,j-k);
+					break;
+				}
+				if(vetorTab[i-k][j-k][0]=="P"&& vezJogador==1){
+					r.push(i,j,i-k,j-k);
+					break;
+				}
+				break;
+			}
+			
+			return r;
+		}
+		
+		function CalcularMovimentosDama(i,j){
+			let r=[];
+			r.push(...CalcularMovimentosTorre(i,j));
+			r.push(...CalcularMovimentosBispo(i,j));			
+			return r;
+		}
+		
+		function CalcularMovimentosCavalo(i,j){
+			let r=[];
+			let possiveisMovimentos=[i+2,j-1,i+2,j+1,i-2,j-1,i-2,j+1,i+1,j-2,i+1,j+2,i-1,j-2,i-1,j+2];
+			for(let k=0;k<16;k+=2){
+				if(possiveisMovimentos[k]<8 && possiveisMovimentos[k]>=0 && possiveisMovimentos[k+1]<8 && possiveisMovimentos[k+1]>=0){
+					if(vezJogador==1 && vetorTab[possiveisMovimentos[k]][possiveisMovimentos[k+1]][0]=="B"){
+						continue;
+					}
+					if(vezJogador==-1 && vetorTab[possiveisMovimentos[k]][possiveisMovimentos[k+1]][0]=="P"){
+						continue;
+					}
+					r.push(i,j,possiveisMovimentos[k],possiveisMovimentos[k+1]);
+				}
+			}
+			
+			return r;
+		}
+
+		function CalcularMovimentosPeao(i,j){
+			let r=[];
+			
+			if(vezJogador==1){
+				if(i+1<8 && j-1>=0 && (vetorTab[i+1][j-1][0]=="P" || (i+1==enPassant[0] && j-1==enPassant[1]))){
+					r.push(i,j,i+1,j-1);
+				}
+				if(i+1<8 && j+1<8 && (vetorTab[i+1][j+1][0]=="P" || (i+1==enPassant[0] && j+1==enPassant[1]))){
+					r.push(i,j,i+1,j+1);
+				}
+				if(i+1<8 && vetorTab[i+1][j]=="  "){
+					r.push(i,j,i+1,j);
+					if(i==1 && vetorTab[i+2][j]=="  "){
+						r.push(i,j,i+2,j);
+					}
+				}	
+			}else{
+				if(i-1>=0 && j-1>=0 && (vetorTab[i-1][j-1][0]=="B" || (i-1==enPassant[0] && j-1==enPassant[1]))){
+					r.push(i,j,i-1,j-1);
+				}
+				if(i-1>=0 && j+1<8 && (vetorTab[i-1][j+1][0]=="B" || (i-1==enPassant[0] && j+1==enPassant[1]))){
+					r.push(i,j,i-1,j+1);
+				}
+				if(i-1>=0 && vetorTab[i-1][j]=="  "){
+					r.push(i,j,i-1,j);
+					if(i==6 && vetorTab[i-2][j]=="  "){
+						r.push(i,j,i-2,j);
+					}
+				}
+			}
+			
+			return r;
+		}
+		
+		function CalcularMovimentosRei(i,j){
+			let r=[];
+			let possiveisMovimentos=[i+1,j-1,i+1,j,i+1,j+1,i,j-1,i,j+1,i-1,j-1,i-1,j,i-1,j+1];
+			for(let k=0;k<16;k+=2){
+				if(possiveisMovimentos[k]<8 && possiveisMovimentos[k]>=0 && possiveisMovimentos[k+1]<8 && possiveisMovimentos[k+1]>=0){
+					if(vezJogador==1 && vetorTab[possiveisMovimentos[k]][possiveisMovimentos[k+1]][0]=="B"){
+						continue;
+					}
+					if(vezJogador==-1 && vetorTab[possiveisMovimentos[k]][possiveisMovimentos[k+1]][0]=="P"){
+						continue;
+					}
+					r.push(i,j,possiveisMovimentos[k],possiveisMovimentos[k+1]);
+				}
+			}
+			
+			if(vezJogador==1 && roque[0]==true && i==0 && j==4 && vetorTab[0][7]=="BT" && vetorTab[0][5]=="  " && vetorTab[0][6]=="  "){
+				console.log("brancas podem tentar roque curto");
+				r.push(i,j,0,6);
+			}
+			
+			if(vezJogador==1 && roque[1]==true && i==0 && j==4 && vetorTab[0][0]=="BT" && vetorTab[0][1]=="  " && vetorTab[0][2]=="  " && vetorTab[0][3]){
+				console.log("brancas podem tentar roque longo");
+				r.push(i,j,0,2);
+			}
+			
+			if(vezJogador==-1 && roque[2]==true && i==7 && j==4 && vetorTab[7][7]=="PT" && vetorTab[7][5]=="  " && vetorTab[7][6]=="  "){
+				console.log("pretas podem tentar roque curto");
+				r.push(i,j,7,6);
+			}
+			
+			if(vezJogador==-1 && roque[3]==true && i==7 && j==4 && vetorTab[7][0]=="PT" && vetorTab[7][1]=="  " && vetorTab[7][2]=="  " && vetorTab[7][3]=="  "){
+				console.log("pretas podem tentar roque longo");
+				r.push(i,j,7,2);
+			}
+			
+			return r;
+		}
+		
+		function CalcularMovimentosCasa(i,j){
+			
+			let r=[];
+			
+			switch(vetorTab[i][j][1]){
+				case "P":
+				r.push(...CalcularMovimentosPeao(i,j));
+				break;
+				
+				case "C":
+				r.push(...CalcularMovimentosCavalo(i,j));
+				break;
+				
+				case "B":
+				r.push(...CalcularMovimentosBispo(i,j));
+				break;
+				
+				case "T":
+				r.push(...CalcularMovimentosTorre(i,j));
+				break;
+				
+				case "D":
+				r.push(...CalcularMovimentosDama(i,j));
+				break;
+				
+				case "R":
+				r.push(...CalcularMovimentosRei(i,j));
+				break;
+			}
+			return r;
+		}
+		
+		function VerificarCheque(){
+			if(vezJogador==0){
+				return false;
+			}
+			
+			let reiAlvo=(vezJogador==1)?"BR":"PR";
+			let i0,j0;
+			for(let i=0;i<8;i++){
+				for(let j=0;j<8;j++){
+					if(vetorTab[i][j]==reiAlvo){
+						i0=i;
+						j0=j;
+					}
+				}
+			}
+						
+			for(let i=i0+1;i<8;i++){
+				if(vetorTab[i][j0]=="  "){
+					continue;
+				}
+				if(vetorTab[i][j0][0]==reiAlvo[0]){
+					break;
+				}
+				if(vetorTab[i][j0][1]=="T" || vetorTab[i][j0][1]=="D"){
+					return true;
+				}
+				break;
+			}
+			
+			for(let i=i0-1;i>=0;i--){
+				if(vetorTab[i][j0]=="  "){
+					continue;
+				}
+				if(vetorTab[i][j0][0]==reiAlvo[0]){
+					break;
+				}
+				if(vetorTab[i][j0][1]=="T" || vetorTab[i][j0][1]=="D"){
+					return true;
+				}
+				break;
+			}
+			
+			for(let j=j0+1;j<8;j++){
+				if(vetorTab[i0][j]=="  "){
+					continue;
+				}
+				if(vetorTab[i0][j][0]==reiAlvo[0]){
+					break;
+				}
+				if(vetorTab[i0][j][1]=="T" || vetorTab[i0][j][1]=="D"){
+					return true;
+				}
+				break;
+			}
+			
+			for(let j=j0-1;j>=0;j--){
+				if(vetorTab[i0][j]=="  "){
+					continue;
+				}
+				if(vetorTab[i0][j][0]==reiAlvo[0]){
+					break;
+				}
+				if(vetorTab[i0][j][1]=="T" || vetorTab[i0][j][1]=="D"){
+					return true;
+				}
+				break;
+			}
+			
+			for(let i=1;i<8;i++){
+				if(i0+i>=8 || j0+i>=8){
+					break;
+				}
+				if(vetorTab[i0+i][j0+i]=="  "){
+					continue;
+				}
+				if(vetorTab[i0+i][j0+i][0]==reiAlvo[0]){
+					break;
+				}
+				if(vetorTab[i0+i][j0+i][1]=="B" || vetorTab[i0+i][j0+i][1]=="D"){
+					return true;
+				}
+				break;
+			}
+			
+			for(let i=1;i<8;i++){
+				if(i0+i>=8 || j0-i<0){
+					break;
+				}
+				if(vetorTab[i0+i][j0-i]=="  "){
+					continue;
+				}
+				if(vetorTab[i0+i][j0-i][0]==reiAlvo[0]){
+					break;
+				}
+				if(vetorTab[i0+i][j0-i][1]=="B" || vetorTab[i0+i][j0-i][1]=="D"){
+					return true;
+				}
+				break;
+			}
+			
+			for(let i=1;i<8;i++){
+				if(i0-i<0 || j0+i>=8){
+					break;
+				}
+				if(vetorTab[i0-i][j0+i]=="  "){
+					continue;
+				}
+				if(vetorTab[i0-i][j0+i][0]==reiAlvo[0]){
+					break;
+				}
+				if(vetorTab[i0-i][j0+i][1]=="B" || vetorTab[i0-i][j0+i][1]=="D"){
+					return true;
+				}
+				break;
+			}
+			
+			for(let i=1;i<8;i++){
+				if(i0-i<0 || j0-i<0){
+					break;
+				}
+				if(vetorTab[i0-i][j0-i]=="  "){
+					continue;
+				}
+				if(vetorTab[i0-i][j0-i][0]==reiAlvo[0]){
+					break;
+				}
+				if(vetorTab[i0-i][j0-i][1]=="B" || vetorTab[i0-i][j0-i][1]=="D"){
+					return true;
+				}
+				break;
+			}
+			
+			if(i0+2<8 && j0+1<8 && vetorTab[i0+2][j0+1][0]!=reiAlvo[0] && vetorTab[i0+2][j0+1][1]=="C"){
+				return true;
+			}
+			
+			if(i0+2<8 && j0-1>=0 && vetorTab[i0+2][j0-1][0]!=reiAlvo[0] && vetorTab[i0+2][j0-1][1]=="C"){
+				return true;
+			}
+			
+			if(i0-2>=0 && j0+1<8 && vetorTab[i0-2][j0+1][0]!=reiAlvo[0] && vetorTab[i0-2][j0+1][1]=="C"){
+				return true;
+			}
+			
+			if(i0-2>=0 && j0-1>=0 && vetorTab[i0-2][j0-1][0]!=reiAlvo[0] && vetorTab[i0-2][j0-1][1]=="C"){
+				return true;
+			}
+			
+			if(i0+1<8 && j0+2<8 && vetorTab[i0+1][j0+2][0]!=reiAlvo[0] && vetorTab[i0+1][j0+2][1]=="C"){
+				return true;
+			}
+			
+			if(i0+1<8 && j0-2>=0 && vetorTab[i0+1][j0-2][0]!=reiAlvo[0] && vetorTab[i0+1][j0-2][1]=="C"){
+				return true;
+			}
+			
+			if(i0-1>=0 && j0+2<8 && vetorTab[i0-1][j0+2][0]!=reiAlvo[0] && vetorTab[i0-1][j0+2][1]=="C"){
+				return true;
+			}
+			
+			if(i0-1>=0 && j0-2>=0 && vetorTab[i0-1][j0-2][0]!=reiAlvo[0] && vetorTab[i0-1][j0-2][1]=="C"){
+				return true;
+			}
+			
+			//rei
+			
+			if(i0+1<8 && j0+1<8 && vetorTab[i0+1][j0+1][0]!=reiAlvo[0] && vetorTab[i0+1][j0+1][1]=="R"){
+				return true;
+			}
+			
+			if(i0+1<8 && j0-1>=0 && vetorTab[i0+1][j0-1][0]!=reiAlvo[0] && vetorTab[i0+1][j0-1][1]=="R"){
+				return true;
+			}
+			
+			if(i0-1>=0 && j0+1<8 && vetorTab[i0-1][j0+1][0]!=reiAlvo[0] && vetorTab[i0-1][j0+1][1]=="R"){
+				return true;
+			}
+			
+			if(i0-1>=0 && j0-1>=0 && vetorTab[i0-1][j0-1][0]!=reiAlvo[0] && vetorTab[i0-1][j0-1][1]=="R"){
+				return true;
+			}
+			
+			if(i0+1<8 && j0<8 && vetorTab[i0+1][j0][0]!=reiAlvo[0] && vetorTab[i0+1][j0][1]=="R"){
+				return true;
+			}
+			
+			if(i0-1>=0 && j0>=0 && vetorTab[i0-1][j0][0]!=reiAlvo[0] && vetorTab[i0-1][j0][1]=="R"){
+				return true;
+			}
+			
+			if(i0>=0 && j0+1<8 && vetorTab[i0][j0+1][0]!=reiAlvo[0] && vetorTab[i0][j0+1][1]=="R"){
+				return true;
+			}
+			
+			if(i0>=0 && j0-1>=0 && vetorTab[i0][j0-1][0]!=reiAlvo[0] && vetorTab[i0][j0-1][1]=="R"){
+				return true;
+			}
+			//peao
+			
+			if(reiAlvo[0]=="B"){
+				if(i0+1<8 && j0-1>=0 && vetorTab[i0+1][j0-1]=="PP"){
+					return true;
+				}
+				if(i0+1<8 && j0+1<8 && vetorTab[i0+1][j0+1]=="PP"){
+					return true;
+				}
+			}else{
+				if(i0-1>=0 && j0-1>=0 && vetorTab[i0-1][j0-1]=="BP"){
+					return true;
+				}
+				if(i0-1>=0 && j0+1<8 && vetorTab[i0-1][j0+1]=="BP"){
+					return true;
+				}
+			}
+			
+			return false;
+		}
+		
+		function TestarMovimento(i0,j0,i,j){
+			let aux;
+			let pecaCapturada=vetorTab[i][j];
+			vetorTab[i][j]=vetorTab[i0][j0];
+			vetorTab[i0][j0]="  ";
+			if(VerificarCheque()==true){
+				aux=false;
+			}else{
+				aux=true;
+			}
+			vetorTab[i0][j0]=vetorTab[i][j];
+			vetorTab[i][j]=pecaCapturada;
+			return aux;
+		}
+		
+		function GerarVetorMovimentos(){
+			let r=[];
+	
+			for(let i=0;i<8;i++){
+				for(let j=0;j<8;j++){
+					if((vezJogador==1 && vetorTab[i][j][0]=="B") || (vezJogador==-1 && vetorTab[i][j][0]=="P")){
+						r.push(...CalcularMovimentosCasa(i,j));
+					}
+				}
+			}
+	
+			vetorMovimentos=[];
+			for(let k=0;k<r.length;k+=4){
+				if(TestarMovimento(r[k],r[k+1],r[k+2],r[k+3])==true){
+					if(r[k+2]==enPassant[0] && r[k+3]==enPassant[1] && vetorTab[r[k]][r[k+1]]=="BP"){
+						vetorTab[r[k+2]][r[k+3]]="BP";
+						vetorTab[r[k]][r[k+1]]="  ";
+						vetorTab[r[k+2]-1][r[k+3]]="  ";
+						if(VerificarCheque()==false){
+							vetorMovimentos.push(r[k],r[k+1],r[k+2],r[k+3]);
+						}
+						vetorTab[r[k+2]][r[k+3]]="  ";
+						vetorTab[r[k]][r[k+1]]="BP";
+						vetorTab[r[k+2]-1][r[k+3]]="PP";
+					}else if(r[k+2]==enPassant[0] && r[k+3]==enPassant[1] && vetorTab[r[k]][r[k+1]]=="PP"){
+						vetorTab[r[k+2]][r[k+3]]="PP";
+						vetorTab[r[k]][r[k+1]]="  ";
+						vetorTab[r[k+2]+1][r[k+3]]="  ";
+						if(VerificarCheque()==false){
+							vetorMovimentos.push(r[k],r[k+1],r[k+2],r[k+3]);
+						}
+						vetorTab[r[k+2]][r[k+3]]="  ";
+						vetorTab[r[k]][r[k+1]]="PP";
+						vetorTab[r[k+2]+1][r[k+3]]="BP";
+					}else if(vetorTab[r[k]][r[k+1]]=="BR" && r[k]==0 && r[k+1]==4 && r[k+2]==0 && r[k+3]==6){
+						if(VerificarCheque()==false && TestarMovimento(0,4,0,5)==true){
+							vetorMovimentos.push(r[k],r[k+1],r[k+2],r[k+3]);
+						}
+					}else if(vetorTab[r[k]][r[k+1]]=="BR" && r[k]==0 && r[k+1]==4 && r[k+2]==0 && r[k+3]==2){
+						if(VerificarCheque()==false && TestarMovimento(0,4,0,3)==true){
+							vetorMovimentos.push(r[k],r[k+1],r[k+2],r[k+3]);
+						}
+					}else if(vetorTab[r[k]][r[k+1]]=="PR" && r[k]==7 && r[k+1]==4 && r[k+2]==7 && r[k+3]==6){
+						if(VerificarCheque()==false && TestarMovimento(7,4,7,5)==true){
+							vetorMovimentos.push(r[k],r[k+1],r[k+2],r[k+3]);
+						}
+					}else if(vetorTab[r[k]][r[k+1]]=="PR" && r[k]==7 && r[k+1]==4 && r[k+2]==7 && r[k+3]==2){
+						if(VerificarCheque()==false && TestarMovimento(7,4,7,3)==true){
+							vetorMovimentos.push(r[k],r[k+1],r[k+2],r[k+3]);
+						}
+					}else{
+						vetorMovimentos.push(r[k],r[k+1],r[k+2],r[k+3]);
+					}
+				}
+			}
+			
+			console.log(vetorMovimentos);
+			
+			if(vezJogador!=0 && vetorMovimentos.length==0){
+				if(VerificarCheque()==true){
+					if(vezJogador==1){
+						alert("Pretas Venceram!");
+					}else{
+						alert("Brancas Venceram!");
+					}
+				}else{
+					alert("Empate, Rei afogado!");
+				}
+			}
+		}
+		
+		//Chama a função ApagarTabuleiro() quando clicar no botão de apagar tabuleiro
+		document.getElementById("bt-apagar-tab").addEventListener("click",e=>{
+			console.log("Apagando Tabuleiro");
+			ApagarTabuleiro();
+		});
+		
+		//Chama a função IniciarTabuleiro() quando clicar no botão de iniciar tabuleiro
+		document.getElementById("bt-inicar-tab").addEventListener("click",e=>{
+			console.log("Iniciando Tabuleiro");
+			IniciarTabuleiro();
+		});
+		
+		//Chama a função GirarTabuleiro() quando clicar no botão de girar tabuleiro
+		document.getElementById("bt-girar-tab").addEventListener("click",e=>{
+			console.log("Rodando tabuleiro");
+			GirarTabuleiro();
+		});
+		
+		//Define o valor inicial da var q armazena de quem é a vez
+		document.getElementById("bt-quem-comeca").addEventListener("click",e=>{
+			e.preventDefault();//Impede de recarregar a pag
+			if(document.getElementById("bt-quem-comeca-brancas").checked){
+				console.log("brancas selecionadas");
+				vezJogador=1;
+			}else{
+				console.log("pretas selecionadas");
+				vezJogador=-1;
+			}
+			
+			if(document.getElementById("roque-curto-brancas").checked==false){
+				roque[0]=false;
+			}
+			
+			if(document.getElementById("roque-longo-brancas").checked==false){
+				roque[1]=false;
+			}
+			
+			if(document.getElementById("roque-curto-pretas").checked==false){
+				roque[2]=false;
+			}
+			
+			if(document.getElementById("roque-longo-pretas").checked==false){
+				roque[3]=false;
+			}
+			
+			if(vetorTab[0][7]!="BT"){
+					roque[0]=false;
+			}
+			
+			if(vetorTab[0][0]!="BT"){
+				roque[1]=false;
+			}
+			
+			if(vetorTab[7][7]!="PT"){
+					roque[2]=false;
+			}
+			
+			if(vetorTab[7][0]!="PT"){
+				roque[3]=false;
+			}
+			
+			GerarVetorMovimentos();
+			document.getElementById("div-opcoes").style.display="none";//Tira o "modo criador" uma vez que o jogo começar
+		});
+		
+		let divAux=document.createElement("div");
+		divAux.style.height=tamQuad;
+		divAux.style.position="relative";
+		
+		let clone;
+		for(let i=7;i>=0;i--){
+			divAux.style.width="100%";
+			divAux.style.backgroundColor="transparent";
+			divAux.id="fileira-"+i;
+			divAux.classList.add("linhaTab");
+			clone=divAux.cloneNode();
+			document.getElementById("tabuleiro").appendChild(clone);
+			
+			divAux.style.width=tamQuad;
+			divAux.classList.remove("linhaTab");
+			for(let j=0;j<8;j++){
+				if(i%2==j%2){
+					divAux.style.backgroundColor="#6d8753";
+				}else{
+					divAux.style.backgroundColor="#FFFFDD";
+				}
+				
+				divAux.id="linha-"+i+"-coluna-"+j;
+				clone=divAux.cloneNode();
+				
+				clone.addEventListener("dragenter",e=>{
+					e.preventDefault();
+				});
+				
+				clone.addEventListener("dragover",e=>{
+					e.preventDefault();
+				});
+				
+				clone.addEventListener("drop",e=>{
+					let data=e.dataTransfer.getData("text").split(",");//Extrai as informações da peça solta na casa e armazena no vetor
+					if(vezJogador==0){
+						if(data[1]!=-1 && data[2]!=-1){
+							InserirPeca(data[1],data[2],"  ");
+						}
+						InserirPeca(i,j,data[0]);
+						console.log(vetorTab);
+						//GerarVetorMovimentos();
+					}else{
+						for(let k=0;k<vetorMovimentos.length;k+=4){
+							if(vetorMovimentos[k]==data[1] && vetorMovimentos[k+1]==data[2] && vetorMovimentos[k+2]==i && vetorMovimentos[k+3]==j){
+								console.log("movimento valido!");
+								InserirPeca(i,j,vetorTab[data[1]][data[2]]);
+								InserirPeca(data[1],data[2],"  ");
+								vezJogador*=-1;
+								
+								console.log("i0:"+data[1]+",j0:"+data[2]+",i:"+i+",j:"+j+",tipoPeca:"+vetorTab[i][j]);
+								
+								if(vetorTab[data[1]][data[2]]=="BR"){
+									roque[0]=false;
+									roque[1]=false;
+								}
+								
+								if(vetorTab[data[1]][data[2]]=="PR"){
+									roque[2]=false;
+									roque[3]=false;
+								}
+								
+								if(vetorTab[data[1]][data[2]]=="BT" && data[1]==0 && data[2]==7){
+									roque[0]=false;
+								}
+								
+								if(vetorTab[data[1]][data[2]]=="BT" && data[1]==0 && data[2]==0){
+									roque[1]=false;
+								}
+								
+								if(vetorTab[data[1]][data[2]]=="PT" && data[1]==7 && data[2]==7){
+									roque[2]=false;
+								}
+								
+								if(vetorTab[data[1]][data[2]]=="PT" && data[1]==7 && data[2]==0){
+									roque[3]=false;
+								}
+								
+								if(vetorTab[0][6]=="BR" && data[1]==0 && data[2]==4 && i==0 && j==6){
+									console.log("brancas fizeram roque curto");
+									InserirPeca(0,7,"  ");
+									InserirPeca(0,5,"BT");
+								}
+								
+								if(vetorTab[0][2]=="BR" && data[1]==0 && data[2]==4 && i==0 && j==2){
+									console.log("brancas fizeram roque longo");
+									InserirPeca(0,0,"  ");
+									InserirPeca(0,3,"BT");
+								}
+								
+								if(vetorTab[7][6]=="PR" && data[1]==7 && data[2]==4 && i==7 && j==6){
+									console.log("pretas fizeram roque curto");
+									InserirPeca(7,7,"  ");
+									InserirPeca(7,5,"PT");
+								}
+								
+								if(vetorTab[7][2]=="PR" && data[1]==7 && data[2]==4 && i==7 && j==2){
+									console.log("pretas fizeram roque longo");
+									InserirPeca(7,0,"  ");
+									InserirPeca(7,3,"PT");
+								}
+								
+								if(vetorTab[data[1]][data[2]]=="BP" && i==3 && data[1]==1){
+									console.log("peao branco andou duas");
+									enPassant=[i-1,j];
+									enPassantContador=true;
+								}
+								
+								if(vetorTab[data[1]][data[2]]=="PP" && i==4 && data[1]==6){
+									console.log("peao preto andou duas casas");
+									enPassant=[i+1,j];
+									enPassantContador=true;
+								}
+								
+								if(vetorTab[data[1]][data[2]]=="BP" && i==enPassant[0] && j==enPassant[1]){
+									InserirPeca(i-1,j,"  ");
+								}
+								
+								if(vetorTab[data[1]][data[2]]=="PP" && i==enPassant[0] && j==enPassant[1]){
+									InserirPeca(i+1,j,"  ");
+								}
+								
+								if(enPassantContador==true){
+									enPassantContador=false;
+								}else{
+									enPassant=[-1,-1];
+								}
+								
+								for(let k=0;k<8;k++){
+									if(vetorTab[7][k]=="BP"){
+										let casa=document.getElementById("linha-7-coluna-"+k);
+										let div=document.createElement("div");
+										let tab=document.getElementById("tabuleiro");
+										tab.style.pointerEvents="none";
+										
+										div.style.position="absolute";
+										div.style.width=tamQuad;
+										div.style.height="clamp(0px, 40vmin, 400px)";
+										div.style.backgroundColor="blue";
+										div.style.zIndex="1";
+										div.style.bottom="0px";
+										div.style.top="0px";
+										div.style.margin="0px";
+										div.style.display="flex";									
+										div.style.flexDirection="column";
+										div.style.pointerEvents="auto";
+										casa.appendChild(div);
+										
+										let img=CriarImagem("BD");
+										img.addEventListener("click", function() {
+											console.log("promoveu para dama");
+											casa.removeChild(casa.lastChild);
+											InserirPeca(i,j,"BD");
+											tab.style.pointerEvents="auto";
+										});
+										div.appendChild(img);
+										
+										img=CriarImagem("BT");
+										img.addEventListener("click", function() {
+											console.log("promoveu para torre");
+											casa.removeChild(casa.lastChild);
+											InserirPeca(i,j,"BT");
+											tab.style.pointerEvents="auto";
+										});
+										div.appendChild(img);
+										
+										img=CriarImagem("BB");
+										img.addEventListener("click", function() {
+											console.log("promoveu para bispo");
+											casa.removeChild(casa.lastChild);
+											InserirPeca(i,j,"BB");
+											tab.style.pointerEvents="auto";
+										});
+										div.appendChild(img);
+										
+										img=CriarImagem("BC");
+										img.addEventListener("click", function() {
+											console.log("promoveu para cavalo");
+											casa.removeChild(casa.lastChild);
+											InserirPeca(i,j,"BC");
+											tab.style.pointerEvents="auto";
+										});
+										div.appendChild(img);
+										
+									}
+									
+									if(vetorTab[0][k]=="PP"){
+										let casa=document.getElementById("linha-0-coluna-"+k);
+										let div=document.createElement("div");
+										let tab=document.getElementById("tabuleiro");
+										tab.style.pointerEvents="none";
+										
+										div.style.pointerEvents="auto";
+										div.style.position="absolute";
+										div.style.width=tamQuad;
+										div.style.height="clamp(0px, 40vmin, 400px)";
+										div.style.backgroundColor="rgba(0,0,255,1)";
+										div.style.zIndex="1";
+										div.style.display="flex";
+										div.style.flexDirection="column";
+										div.style.bottom=3*div.offsetWidth+"px";										
+										div.style.margin="0px";
+										casa.appendChild(div);
+										//div.style.height=4*div.offsetWidth+"px";
+										
+										let img=CriarImagem("PC");
+										img.addEventListener("click", function() {
+											console.log("promoveu para cavalo");
+											casa.removeChild(casa.lastChild);
+											InserirPeca(i,j,"PC");
+											tab.style.pointerEvents="auto";
+										});
+										div.appendChild(img);
+										
+										img=CriarImagem("PB");
+										img.addEventListener("click", function() {
+											console.log("promoveu para bispo");
+											casa.removeChild(casa.lastChild);
+											InserirPeca(i,j,"PB");
+											tab.style.pointerEvents="auto";
+										});
+										div.appendChild(img);
+										
+										img=CriarImagem("PT");
+										img.addEventListener("click", function() {
+											console.log("promoveu para torre");
+											casa.removeChild(casa.lastChild);
+											InserirPeca(i,j,"PT");
+											tab.style.pointerEvents="auto";
+										});
+										div.appendChild(img);
+										
+										img=CriarImagem("PD");
+										img.addEventListener("click", function() {
+											console.log("promoveu para dama");
+											casa.removeChild(casa.lastChild);
+											InserirPeca(i,j,"PD");
+											tab.style.pointerEvents="auto";
+										});
+										div.appendChild(img);
+																			
+									}
+									
+								}
+								
+								GerarVetorMovimentos();
+								break;
+							}
+						}
+						console.log(vetorTab);
+					}
+				});
+				
+				document.getElementById("tabuleiro").lastChild.appendChild(clone);
+			}
+			
+		}
+		
+		//Define o comportamento da lixeira
+		let lixeira=document.getElementById("lixeira");
+		lixeira.addEventListener("dragenter", e=>{
+			e.preventDefault();
+		});
+		
+		lixeira.addEventListener("dragover", e=>{
+			e.preventDefault();
+		});
+		
+		lixeira.addEventListener("drop", e=>{
+			let data=e.dataTransfer.getData("text").split(",");
+			if(data[1]!=-1 && data[2]!=-1){//Se a peça não veio do modo criador
+				InserirPeca(data[1],data[2],"  ");//Coloca um espaço vazio onde a peça tá
+			}
+		});
+		
+		
+		//Cria o inventário do modo criador
+		let vetorNomePecas=["BP","BC","BB","BT","BD","BR"];
+		
+		for(let i=0;i<6;i++){
+				document.getElementById("caixa-pecas-branca").appendChild(CriarImagem(vetorNomePecas[i]));
+		}
+		
+		vetorNomePecas=["PP","PC","PB","PT","PD","PR"];
+		for(let i=0;i<6;i++){
+				document.getElementById("caixa-pecas-preta").appendChild(CriarImagem(vetorNomePecas[i]));
+		}
+		
+		//Inicia o tabuleiro na posição inicial
+		IniciarTabuleiro();
+		console.log(vetorTab);
+	</script>
+	
+	
+	
+</html>
